@@ -1,21 +1,18 @@
 ---
-title: "Assignment I: Web Scraping"
-author: "Lost in the Random Forest"
-
 format:
   html:
-    theme: cosmo           # аккуратная тема Bootstrap
-    toc: true              # автоматическое оглавление
-    toc-depth: 3           # глубина оглавления
-    number-sections: true  # нумерация разделов
-    embed-resources: true  # встроить ресурсы в HTML
-    code-fold: false       # не сворачивать код
-    code-overflow: wrap    # перенос длинных строк
-    smooth-scroll: true    # плавная прокрутка
+    theme: cosmo           
+    toc: true              
+    toc-depth: 3           
+    number-sections: true  
+    embed-resources: true  
+    code-fold: false       
+    code-overflow: wrap    
+    smooth-scroll: true    
 
 execute:
-  eval: false              # не выполнять код по умолчанию
-  echo: true               # показывать код
+  eval: false              
+  echo: true               
 
 editor: visual
 ---
@@ -135,7 +132,7 @@ news_comments_num <- page %>%
     html_elements(".article-card") %>%      
     map_chr(~ {
       node <- html_element(.x, ".article-card__comments")
-      if (is.na(node)) return("0")               # если нет блока — возвращаем "0"
+      if (is.na(node)) return("0")               
       node %>% html_text(trim = TRUE)
     }) %>%
     str_extract("\\d+") %>%
@@ -299,7 +296,7 @@ for (page_result in seq(from = 1, to = 28, by = 1)) {
     html_elements(".article-card") %>%      
     map_chr(~ {
       node <- html_element(.x, ".article-card__comments")
-      if (is.na(node)) return("0")               # если нет блока — возвращаем "0"
+      if (is.na(node)) return("0")               
       node %>% html_text(trim = TRUE)
     }) %>%
     str_extract("\\d+") %>%
