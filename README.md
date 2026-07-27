@@ -13,7 +13,7 @@ The project includes:
 
 - `web_scraping.qmd` — source code and analysis
 - `web_scraping.html` — rendered project output
-- `data/` — collected and cleaned datasets
+- `data/` — collected and cleaned datasets, video
 
 ## Tools
 
