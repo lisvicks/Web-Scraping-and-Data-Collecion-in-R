@@ -1,0 +1,382 @@
+---
+title: "Assignment I: Web Scraping"
+author: "Lost in the Random Forest"
+
+format:
+  html:
+    theme: cosmo           # аккуратная тема Bootstrap
+    toc: true              # автоматическое оглавление
+    toc-depth: 3           # глубина оглавления
+    number-sections: true  # нумерация разделов
+    embed-resources: true  # встроить ресурсы в HTML
+    code-fold: false       # не сворачивать код
+    code-overflow: wrap    # перенос длинных строк
+    smooth-scroll: true    # плавная прокрутка
+
+execute:
+  eval: false              # не выполнять код по умолчанию
+  echo: true               # показывать код
+
+editor: visual
+---
+
+# Static content with rvest
+
+According to [Wikipedia](https://en.wikipedia.org/wiki/The_Local) The Local is a multi-regional European digital news publisher that primarily targets expatriates, labour migrants, and second-home owners. It operates nine national editions: The Local Austria, The Local Denmark, The Local France, The Local Germany, The Local Italy, The Local Norway, The Local Spain, The Local Sweden, and The Local Switzerland. All content is published in English, which facilitates accessibility for individuals whose first language is not that of the host country. By providing local news and analysis in a widely understood lingua franca, The Local enhances social and professional integration, helping readers stay informed about current affairs, particularly those related to the labour market and migration issues.
+
+We collected the following information from the section featuring Austrian news: the article title, thematic category, number of comments, comment texts, and publication date. This dataset may be of interest for subsequent descriptive, econometric, and text analysis aimed at examining the relative importance of various topics for the publication’s target audience, from the perspective of editorial prioritization, actual reader engagement, and the perceived relevance or sensitivity of specific issues, as well as the overall sentiment toward the news content, whether positive, negative, or neutral.
+
+For the analysis, we employed a basic set of R packages, from the tidyverse collection of packages, we use the dplyr, stringr, tidyr, purrr.
+
+```{r}
+library(rvest)      # static content web scraping
+library(tidyverse)  # dplyr, stringr, tidyr, purrr
+```
+
+## SectorGadget
+
+Instead of manually inspecting the webpage’s source code using the keyboard shortcut Ctrl + Shift + C and searching for the required elements, we employed **SelectorGadget**, a Chrome extension that highlights CSS paths and allows users to include or exclude groups of target elements with a simple click. This approach helps us focus precisely on the website elements of interest, avoiding both over- and under-selection, and it also accelerates the initial stage of working with CSS selectors.
+
+The video below demonstrates how SelectorGadget can be used to obtain the CSS path to the headlines of news cards from The Local website. It also allows us to determine the number of such elements on the page, in our example, there are 25 headlines.
+
+![](SectorGadget.mp4)
+
+## Brief cheat sheet of rvest functions
+
+-   **read_html** creates an html document from a url
+
+-   **html_nodes** selects parts of a document using CSS selectors
+
+-   **html_text** extracts text from the selected nodes
+
+-   **html_attr** gets element attributes
+
+## Preparatory Work: Creating Functions
+
+We first create a function that loads an HTML page (*news_page*) from a given link (*news_link*), identifies all elements with the CSS class *.comment*, extracts the text of all comments related to the news card while trimming extra spaces, and concatenates them into a single text string separated by slashes (/). When an empty or invalid link is provided, the function does not produce an error message but instead marks the corresponding entry as NA. In this section, we work with the main news page for Austria without delving into individual news cards.In this section, we work with the main news page for Austria without delving into individual news cards.
+
+```{r}
+get_comment = function(news_link) {
+  if (is.na(news_link) || !nzchar(news_link)) return(NA_character_)
+  
+  out <- try({
+    news_page <- read_html(news_link)
+    txt <- news_page |> html_nodes(".comment") |> html_text(trim = TRUE)
+    if (length(txt) == 0) {
+      NA_character_
+    } else {
+      paste(txt, collapse = " / ")
+    }
+  }, silent = TRUE)
+  
+  if (inherits(out, "try-error")) {
+    NA_character_
+  } else {
+    out
+  }
+}
+```
+
+Similarly, we create a function to extract the publication date of a news card.
+
+```{r}
+get_date = function(news_link) {
+  news_page = read_html(news_link)
+  news_date = news_page |> html_nodes(".article__published span:nth-child(1)") |> 
+    html_text() 
+  return(news_date)
+}
+```
+
+## Main Work: Creating Loop
+
+In the following section, we present and comment on individual lines from the loop, which, of course, do not function independently. The complete working version of the code can be found at the end of the document in the section [Working Code](#working-code).
+
+We create an empty data frame to progressively store the data of interest and initiate a loop that iterates through all available pages of Austrian news, from page 1 to page 28.
+
+```{r}
+news_Austria = data.frame()
+
+for (page_result in seq(from = 1, to = 28, by = 1)) {
+  link = paste0("https://www.thelocal.com/category/austria-news?page=", 
+               page_result,"")
+  page = read_html(link)
+```
+
+We identify and extract the text from the **titles** of the news cards.
+
+```{r}
+news_title = page |> html_nodes("h3 a") |> html_text(trim = TRUE)
+```
+
+We identify and extract the links to each particular news card.
+
+```{r}
+ news_links = page %>% html_nodes("h3 a") %>% html_attr("href")
+
+```
+
+We access each individual news card and extract the thematic category tag.
+
+```{r}
+news_section <- page %>%
+    html_elements(".article-card") %>%
+    map_chr(~ {
+      node <- html_element(.x, ".tag")
+      if (is.na(node)) return(NA_character_)
+      html_text(node, trim = TRUE)
+    })
+```
+
+Similarly, we access each individual news card and extract the number of comments as a numeric vector. If no comments are present, the value 0 is stored in the vector.
+
+```{r}
+news_comments_num <- page %>%
+    html_elements(".article-card") %>%      
+    map_chr(~ {
+      node <- html_element(.x, ".article-card__comments")
+      if (is.na(node)) return("0")               # если нет блока — возвращаем "0"
+      node %>% html_text(trim = TRUE)
+    }) %>%
+    str_extract("\\d+") %>%
+    replace_na("0") %>%
+    as.numeric()
+```
+
+From each news card, we also extract the full text of all comments.
+
+```{r}
+comments = sapply(news_links, FUN = get_comment, USE.NAMES = FALSE)
+```
+
+Finally, we extract the publication date of the news card itself using the function created in the previous section.
+
+```{r}
+date = sapply(news_links, FUN = get_date, USE.NAMES = FALSE)
+```
+
+All the data collected through the loop are stored in the pre-created empty data frame.
+
+```{r}
+news_Austria = rbind(news_Austria, 
+                       data.frame(news_title, news_section, news_comments_num, comments, date, stringsAsFactors = FALSE))
+```
+
+For convenience, we also display the scraping progress, allowing us to see at any given moment how many of the 28 pages have already been successfully processed.
+
+```{r}
+print(paste("Page:", page_result))
+```
+
+Finally, we save the resulting dataset, which we will examine in the next section.
+
+```{r}
+write.csv(news_Austria, "news_Austriacheck.csv")
+```
+
+## Data Preparation
+
+```{r}
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("lubridate")) install.packages("lubridate")
+
+library(tidyverse)
+library(lubridate)
+
+df <- read_csv("news_Austria.csv")
+
+
+cat("Dataset size:", dim(df)[1], "rows and", dim(df)[2], "columns\n\n")
+cat("First few rows:\n")
+print(head(df))
+cat("\nData info:\n")
+glimpse(df)
+cat("\nNumber of missing values per column:\n")
+print(colSums(is.na(df)))
+
+df <- df %>%
+  distinct() %>%                                           # remove duplicates
+  mutate(across(where(is.character), ~ str_trim(tolower(.))))  # trim + lowercase
+
+
+df <- df %>%
+  mutate(
+    clean_date = str_replace_all(date, "(?i)published|cet", ""),  # remove words
+    clean_date = str_trim(clean_date),                            # trim spaces
+    parsed_date = dmy(clean_date)                                 # parse as date
+  )
+
+clean_text <- function(x) {
+  x <- str_replace_all(x, "http\\S+|www\\S+", "")     
+  x <- str_replace_all(x, "<.*?>", "")                 
+  x <- str_replace_all(x, "[[:punct:]]", " ")            
+  x <- str_squish(x)                                      
+  return(x)
+}
+
+df <- df %>%
+  mutate(across(where(is.character), clean_text))
+
+
+cat("\nParsed date preview:\n")
+print(df %>% select(date, clean_date, parsed_date) %>% head())
+
+cat("\nData types after cleaning:\n")
+print(sapply(df, class))
+
+
+write_csv(df, "news_Austria_clean.csv")
+```
+
+## Final Dataset
+
+```{r, eval = TRUE, echo = FALSE, message = FALSE, warning = FALSE}
+library(readr)
+library(DT)
+
+Austria_news <- read_csv("news_Austria_clean.csv")
+datatable(Austria_news)
+```
+
+## Working Code {#working-code}
+
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(purrr) 
+
+# Preparatory Work: Creating Functions
+
+get_comment = function(news_link) {
+  if (is.na(news_link) || !nzchar(news_link)) return(NA_character_)
+  
+  out <- try({
+    news_page <- read_html(news_link)
+    txt <- news_page |> html_nodes(".comment") |> html_text(trim = TRUE)
+    if (length(txt) == 0) {
+      NA_character_
+    } else {
+      paste(txt, collapse = " / ")
+    }
+  }, silent = TRUE)
+  
+  if (inherits(out, "try-error")) {
+    NA_character_
+  } else {
+    out
+  }
+}
+
+
+get_date = function(news_link) {
+  news_page = read_html(news_link)
+  news_date = news_page |> html_nodes(".article__published span:nth-child(1)") |> 
+    html_text() 
+  return(news_date)
+}
+
+# Main Work: Creating Loop
+
+news_Austria = data.frame()
+
+for (page_result in seq(from = 1, to = 28, by = 1)) {
+  link = paste0("https://www.thelocal.com/category/austria-news?page=", 
+               page_result,"")
+  page = read_html(link)
+  news_title = page |> html_nodes("h3 a") |> html_text(trim = TRUE)
+  news_links = page %>% html_nodes("h3 a") %>%
+    html_attr("href")
+  news_section <- page %>%
+    html_elements(".article-card") %>%
+    map_chr(~ {
+      node <- html_element(.x, ".tag")
+      if (is.na(node)) return(NA_character_)
+      html_text(node, trim = TRUE)
+    })
+  news_comments_num <- page %>%
+    html_elements(".article-card") %>%      
+    map_chr(~ {
+      node <- html_element(.x, ".article-card__comments")
+      if (is.na(node)) return("0")               # если нет блока — возвращаем "0"
+      node %>% html_text(trim = TRUE)
+    }) %>%
+    str_extract("\\d+") %>%
+    replace_na("0") %>%
+    as.numeric()
+  comments = sapply(news_links, FUN = get_comment, USE.NAMES = FALSE)
+  date = sapply(news_links, FUN = get_date, USE.NAMES = FALSE)
+  
+  news_Austria = rbind(news_Austria, 
+                       data.frame(news_title, news_section, news_comments_num, comments, date, stringsAsFactors = FALSE))
+  
+  print(paste("Page:", page_result))
+  }
+
+write.csv(news_Austria, "news_Austriacheck.csv")
+```
+
+# Dynamic content with RSelenium
+
+```{r}
+# install.packages(c("tidyverse", "RSelenium", "rvest", "netstat", "data.table"))
+library(tidyverse)  # data wrangling
+library(RSelenium)  # activate Selenium server
+library(rvest)      # web scrape tables
+library(netstat)    # find unused port
+library(data.table) # for the rbindlist function
+
+client <- remoteDriver(remoteServerAddr = "localhost", port = 4444L, browserName = "firefox") # set the browser
+client$open()
+client$setTimeout(type = "implicit", milliseconds = 0) #set the timeout
+
+client$navigate("https://rankings.newsweek.com/most-trustworthy-companies-america-2025") #set the link
+
+#on the page click inspect; click cursor
+data_table <- client$findElement(using = "css selector", value = "table[aria-label='Ranking table']") #create table identifier
+
+next_button <- client$findElement(using = "xpath", '//button[@aria-label="Next page"]') #for Next Page button
+# next_button$clickElement() #checking if it opens next page
+
+all_data <- data.table() #if list, columns state on the right
+cond <- TRUE #so that "next" button works until cond is false
+
+while (cond == TRUE) {
+  tbl_html <- data_table$getElementAttribute("outerHTML")[[1]] #extract table outer html; [[1]] retrieves the actual HTML string
+  #required for subsequent parsing.
+  page <- read_html(tbl_html) # html becomes a structure (like a tree)
+  df <- html_table(page, fill = TRUE, header = TRUE, trim = TRUE)[[1]] #extract table from html; trim removes spaces
+  setDT(df) #transform df in data.tabole format
+  setnames(df, make.names(names(df))) #column names
+  
+  all_data <- rbindlist(list(all_data, df), fill = TRUE, use.names = TRUE) # add lines of current page to common dataframe
+  Sys.sleep(0.2) #pause every 0.2 seconds (to not overwhelm the server)
+  
+  next_btns <- client$findElements("xpath", "//button[@aria-label='Next page' and not(@disabled)]") #next button
+  if (length(next_btns) == 0) {
+    message("Last page reached. Script Complete!")
+    break
+  } else {
+    next_btns[[1]]$clickElement()
+    Sys.sleep(0.2)
+  }
+}
+
+colnames(all_data)[1] <- "Industry Rank"
+colnames(all_data)[4] <- "State of Headquarters"
+colnames(all_data)[5] <- "City of Headquarters"
+colnames(all_data)[6] <- "Company Type"
+
+write_csv(all_data, "Newsweek_Trustworthy_Companies.csv", na = "")
+```
+
+## Final Dataset
+
+```{r, eval = TRUE, echo = FALSE, message = FALSE, warning = FALSE}
+library(readr)
+library(DT)
+
+Austria_news <- read_csv("newsweek_trustworthy_companies.csv")
+datatable(Austria_news)
+```
